@@ -1,5 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  LayoutChangeEvent,
+} from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import {
@@ -20,8 +25,10 @@ interface GlucoseChartProps {
 
 export function GlucoseChart({ records, filter, onFilterChange }: GlucoseChartProps) {
   const theme = useTheme();
+  const [containerWidth, setContainerWidth] = useState(320);
+  const [selectedRecord, setSelectedRecord] = useState<GlucoseRecord | null>(null);
 
-  // Filtra por data (7, 30 ou 90 dias)
+  // Filtro de tempo
   const now = new Date().getTime();
   const daysMap: Record<TimeFilter, number> = {
     '7d': 7,
@@ -29,50 +36,69 @@ export function GlucoseChart({ records, filter, onFilterChange }: GlucoseChartPr
     '90d': 90,
   };
 
-  const cutoffTime = now - daysMap[filter] * 24 * 60 * 60 * 1000;
+  const cutoff = now - daysMap[filter] * 24 * 60 * 60 * 1000;
   const filteredRecords = useMemo(() => {
     return records
-      .filter((r) => new Date(r.timestamp).getTime() >= cutoffTime)
+      .filter((r) => new Date(r.timestamp).getTime() >= cutoff)
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [records, cutoffTime]);
+  }, [records, cutoff]);
 
-  const [selectedItem, setSelectedItem] = useState<GlucoseRecord | null>(null);
-
-  // Agrupamento para exibição limpa
-  // Para 7 dias: mostra medições individuais recentes ou por dia
-  // Para 30/90 dias: agrupa por intervalos ou mostra histórico de cards/barras simplificadas
-  const chartItems = useMemo(() => {
-    if (filter === '7d') {
-      return filteredRecords.slice(-10); // até 10 medições recentes
-    } else if (filter === '30d') {
-      return filteredRecords.slice(-15);
-    } else {
-      return filteredRecords.slice(-20);
-    }
-  }, [filteredRecords, filter]);
-
-  // Cálculos de resumo
+  // Estatísticas principais
   const values = filteredRecords.map((r) => r.value);
   const avg = values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
-  const min = values.length ? Math.min(...values) : 0;
-  const max = values.length ? Math.max(...values) : 0;
-
-  // Em meta (70 a 140)
   const inRangeCount = values.filter((v) => v >= 70 && v <= 140).length;
   const inRangePct = values.length ? Math.round((inRangeCount / values.length) * 100) : 0;
 
-  const maxChartValue = Math.max(200, max + 20);
+  // Dimensões do gráfico minimalista
+  const chartHeight = 140;
+  const padX = 24;
+  const padY = 18;
+  const effectiveWidth = Math.max(100, containerWidth - padX * 2);
+  const effectiveHeight = chartHeight - padY * 2;
+
+  // Escala Y (fixa ou adaptável com folga elegante)
+  const minY = 50;
+  const maxY = Math.max(220, ...values, 180);
+  const rangeY = maxY - minY || 1;
+
+  const getYPos = (val: number) => {
+    const clamped = Math.max(minY, Math.min(maxY, val));
+    return padY + effectiveHeight - ((clamped - minY) / rangeY) * effectiveHeight;
+  };
+
+  const getXPos = (index: number, total: number) => {
+    if (total <= 1) return padX + effectiveWidth / 2;
+    return padX + (index / (total - 1)) * effectiveWidth;
+  };
+
+  // Posições dos pontos
+  const points = useMemo(() => {
+    return filteredRecords.map((record, index) => {
+      const x = getXPos(index, filteredRecords.length);
+      const y = getYPos(record.value);
+      return { record, x, y };
+    });
+  }, [filteredRecords, containerWidth, effectiveHeight, effectiveWidth]);
+
+  const onLayout = (e: LayoutChangeEvent) => {
+    setContainerWidth(e.nativeEvent.layout.width);
+  };
+
+  // Faixa alvo (70 a 140)
+  const targetTop = getYPos(140);
+  const targetBottom = getYPos(70);
+  const targetHeight = Math.max(0, targetBottom - targetTop);
 
   return (
-    <ThemedView type="backgroundElement" style={styles.container}>
-      {/* Topo do Card com Título e Filtro Segmentado Moderno */}
-      <View style={styles.headerRow}>
+    <ThemedView type="backgroundElement" style={styles.card}>
+      {/* Header com Título e Filtro Segmentado Elegante */}
+      <View style={styles.header}>
         <View>
-          <ThemedText type="defaultSemiBold" style={styles.title}>
-            Estatísticas &amp; Gráfico
+          <ThemedText type="defaultSemiBold" style={styles.cardTitle}>
+            Tendência Glicêmica
           </ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            {filteredRecords.length} medições registradas
+            {filteredRecords.length} medições no período
           </ThemedText>
         </View>
 
@@ -86,7 +112,7 @@ export function GlucoseChart({ records, filter, onFilterChange }: GlucoseChartPr
                 key={f}
                 onPress={() => {
                   onFilterChange(f);
-                  setSelectedItem(null);
+                  setSelectedRecord(null);
                 }}
                 style={[
                   styles.filterBtn,
@@ -106,169 +132,190 @@ export function GlucoseChart({ records, filter, onFilterChange }: GlucoseChartPr
         </View>
       </View>
 
-      {/* Cards de Métricas Rápidas */}
-      <View style={styles.statsGrid}>
-        <View style={[styles.statBox, { backgroundColor: theme.background }]}>
-          <ThemedText type="small" themeColor="textSecondary">
-            Média
-          </ThemedText>
+      {/* Cartões Rápidos de Resumo */}
+      <View style={styles.metricsRow}>
+        <View style={[styles.metricCard, { backgroundColor: theme.background }]}>
+          <ThemedText type="small" themeColor="textSecondary">Média Geral</ThemedText>
           <ThemedText
-            type="subtitle"
-            style={{
-              fontSize: 20,
-              fontWeight: '800',
-              color: avg > 0 ? getGlucoseStatusColor(getGlucoseStatus(avg)) : theme.text,
-            }}>
-            {avg > 0 ? `${avg}` : '--'}
-            <ThemedText type="small" style={{ fontSize: 11, fontWeight: 'normal' }}>
+            type="title"
+            style={[
+              styles.metricValue,
+              { color: avg > 0 ? getGlucoseStatusColor(getGlucoseStatus(avg)) : theme.text },
+            ]}>
+            {avg > 0 ? avg : '--'}
+            <ThemedText type="small" themeColor="textSecondary" style={styles.metricUnit}>
               {avg > 0 ? ' mg/dL' : ''}
             </ThemedText>
           </ThemedText>
         </View>
 
-        <View style={[styles.statBox, { backgroundColor: theme.background }]}>
-          <ThemedText type="small" themeColor="textSecondary">
-            Na meta (70-140)
-          </ThemedText>
-          <ThemedText type="subtitle" style={{ fontSize: 20, fontWeight: '800', color: '#10b981' }}>
+        <View style={[styles.metricCard, { backgroundColor: theme.background }]}>
+          <ThemedText type="small" themeColor="textSecondary">Na Meta (70-140)</ThemedText>
+          <ThemedText type="title" style={[styles.metricValue, { color: '#10b981' }]}>
             {values.length > 0 ? `${inRangePct}%` : '--'}
-          </ThemedText>
-        </View>
-
-        <View style={[styles.statBox, { backgroundColor: theme.background }]}>
-          <ThemedText type="small" themeColor="textSecondary">
-            Mín. / Máx.
-          </ThemedText>
-          <ThemedText type="defaultSemiBold" style={{ fontSize: 15, marginTop: 4 }}>
-            {min > 0 ? `${min}` : '--'} / {max > 0 ? `${max}` : '--'}
           </ThemedText>
         </View>
       </View>
 
-      {/* Visualizador de Barras Moderno e Intuitivo */}
-      {filteredRecords.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <ThemedText type="small" themeColor="textSecondary">
-            Nenhuma medição encontrada para este período.
+      {/* Área do Gráfico em Linha / Curva com Pontos */}
+      <View style={styles.chartCanvas} onLayout={onLayout}>
+        {/* Faixa Alvo Verde Suave (70 a 140 mg/dL) */}
+        <View
+          style={[
+            styles.targetZone,
+            {
+              top: targetTop,
+              height: targetHeight,
+            },
+          ]}>
+          <ThemedText type="small" style={styles.targetZoneText}>
+            Zona Alvo (70 - 140 mg/dL)
           </ThemedText>
         </View>
-      ) : (
-        <View style={styles.chartWrapper}>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.chartSubtitle}>
-            Toque nas colunas para ver detalhes da medição:
-          </ThemedText>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.barsContainer}>
-            {chartItems.map((item) => {
-              const heightPercent = Math.min(100, Math.max(15, (item.value / maxChartValue) * 100));
-              const color = getGlucoseStatusColor(getGlucoseStatus(item.value));
-              const isSelected = selectedItem?.id === item.id;
-              const date = new Date(item.timestamp);
-              const dayLabel = `${date.getDate()}/${date.getMonth() + 1}`;
+        {/* Linhas de Referência Discretas */}
+        <View style={[styles.guideLine, { top: targetTop }]} />
+        <View style={[styles.guideLine, { top: targetBottom }]} />
 
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  activeOpacity={0.8}
-                  onPress={() => setSelectedItem(isSelected ? null : item)}
-                  style={styles.barColumn}>
-                  {/* Valor acima da barra */}
-                  <ThemedText
-                    type="smallBold"
-                    style={[
-                      styles.barValueText,
-                      { color: isSelected ? color : theme.textSecondary },
-                    ]}>
-                    {item.value}
-                  </ThemedText>
+        {/* Segmentos de Conexão entre Pontos */}
+        {points.length > 1 &&
+          points.slice(0, -1).map((pt, i) => {
+            const nextPt = points[i + 1];
+            const dx = nextPt.x - pt.x;
+            const dy = nextPt.y - pt.y;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+            const midX = (pt.x + nextPt.x) / 2;
+            const midY = (pt.y + nextPt.y) / 2;
 
-                  {/* Barra vertical com topo arredondado */}
-                  <View style={styles.barTrack}>
-                    <View
-                      style={[
-                        styles.barFill,
-                        {
-                          height: `${heightPercent}%`,
-                          backgroundColor: color,
-                          opacity: isSelected ? 1 : 0.85,
-                          borderWidth: isSelected ? 2 : 0,
-                          borderColor: '#ffffff',
-                        },
-                      ]}
-                    />
-                  </View>
+            return (
+              <View
+                key={`line-${i}`}
+                style={[
+                  styles.connectingLine,
+                  {
+                    width: length,
+                    left: midX - length / 2,
+                    top: midY - 1,
+                    transform: [{ rotate: `${angle}deg` }],
+                  },
+                ]}
+              />
+            );
+          })}
 
-                  {/* Data / Dia */}
-                  <ThemedText type="small" style={styles.barDateText} themeColor="textSecondary">
-                    {dayLabel}
-                  </ThemedText>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+        {/* Pontos Clicáveis na Linha */}
+        {points.map(({ record, x, y }) => {
+          const color = getGlucoseStatusColor(getGlucoseStatus(record.value));
+          const isSelected = selectedRecord?.id === record.id;
 
-          {/* Linha Informativa do Item Selecionado */}
-          {selectedItem && (
-            <ThemedView
-              type="backgroundSelected"
+          return (
+            <TouchableOpacity
+              key={record.id}
+              activeOpacity={0.7}
+              onPress={() => setSelectedRecord(isSelected ? null : record)}
               style={[
-                styles.detailBox,
-                { borderLeftColor: getGlucoseStatusColor(getGlucoseStatus(selectedItem.value)) },
+                styles.pointWrapper,
+                {
+                  left: x - 14,
+                  top: y - 14,
+                },
               ]}>
-              <View style={styles.detailRow}>
-                <ThemedText
-                  type="defaultSemiBold"
-                  style={{
-                    color: getGlucoseStatusColor(getGlucoseStatus(selectedItem.value)),
-                    fontSize: 18,
-                  }}>
-                  {selectedItem.value} mg/dL
-                </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {new Date(selectedItem.timestamp).toLocaleDateString('pt-BR', {
-                    day: '2-digit',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </ThemedText>
+              <View
+                style={[
+                  styles.pointOuterRing,
+                  isSelected && {
+                    borderColor: color,
+                    backgroundColor: `${color}20`,
+                    transform: [{ scale: 1.3 }],
+                  },
+                ]}>
+                <View style={[styles.pointCore, { backgroundColor: color }]} />
               </View>
-              <ThemedText type="small" style={{ marginTop: 2 }}>
-                Momento: <ThemedText type="smallBold">{getContextLabel(selectedItem.context)}</ThemedText>
-                {selectedItem.notes ? ` • "${selectedItem.notes}"` : ''}
+            </TouchableOpacity>
+          );
+        })}
+
+        {filteredRecords.length === 0 && (
+          <View style={styles.emptyContainer}>
+            <ThemedText type="small" themeColor="textSecondary">
+              Nenhuma medição registrada no período selecionado.
+            </ThemedText>
+          </View>
+        )}
+      </View>
+
+      {/* Card Flutuante de Detalhes da Medição Selecionada */}
+      {selectedRecord ? (
+        <ThemedView
+          type="backgroundSelected"
+          style={[
+            styles.detailBanner,
+            { borderLeftColor: getGlucoseStatusColor(getGlucoseStatus(selectedRecord.value)) },
+          ]}>
+          <View style={styles.detailHeader}>
+            <View style={styles.detailValueContainer}>
+              <ThemedText
+                type="title"
+                style={[
+                  styles.detailValueText,
+                  { color: getGlucoseStatusColor(getGlucoseStatus(selectedRecord.value)) },
+                ]}>
+                {selectedRecord.value}
               </ThemedText>
-            </ThemedView>
-          )}
-        </View>
+              <ThemedText type="smallBold" themeColor="textSecondary">
+                mg/dL
+              </ThemedText>
+            </View>
+
+            <ThemedText type="small" themeColor="textSecondary">
+              {new Date(selectedRecord.timestamp).toLocaleDateString('pt-BR', {
+                day: '2-digit',
+                month: 'short',
+              })}{' '}
+              às{' '}
+              {new Date(selectedRecord.timestamp).toLocaleTimeString('pt-BR', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </ThemedText>
+          </View>
+
+          <ThemedText type="small" style={{ marginTop: 2 }}>
+            Momento: <ThemedText type="smallBold">{getContextLabel(selectedRecord.context)}</ThemedText>
+            {selectedRecord.notes ? ` • "${selectedRecord.notes}"` : ''}
+          </ThemedText>
+        </ThemedView>
+      ) : (
+        <ThemedText type="small" themeColor="textSecondary" style={styles.hintText}>
+          💡 Dica: Toque nos pontos do gráfico para ver detalhes de cada medição.
+        </ThemedText>
       )}
 
-      {/* Legenda visual simplificada */}
-      <View style={styles.legendRow}>
+      {/* Legenda Discreta */}
+      <View style={styles.legend}>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: '#3b82f6' }]} />
-          <ThemedText type="small" style={styles.legendText} themeColor="textSecondary">
-            &lt;70 Baixa
+          <ThemedText type="small" style={styles.legendLabel} themeColor="textSecondary">
+            &lt;70
           </ThemedText>
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: '#10b981' }]} />
-          <ThemedText type="small" style={styles.legendText} themeColor="textSecondary">
-            70-99 Normal
+          <ThemedText type="small" style={styles.legendLabel} themeColor="textSecondary">
+            70-99
           </ThemedText>
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: '#f59e0b' }]} />
-          <ThemedText type="small" style={styles.legendText} themeColor="textSecondary">
-            100-139 Atenção
+          <ThemedText type="small" style={styles.legendLabel} themeColor="textSecondary">
+            100-139
           </ThemedText>
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: '#ef4444' }]} />
-          <ThemedText type="small" style={styles.legendText} themeColor="textSecondary">
-            ≥140 Alta
+          <ThemedText type="small" style={styles.legendLabel} themeColor="textSecondary">
+            ≥140
           </ThemedText>
         </View>
       </View>
@@ -277,19 +324,19 @@ export function GlucoseChart({ records, filter, onFilterChange }: GlucoseChartPr
 }
 
 const styles = StyleSheet.create({
-  container: {
-    borderRadius: 20,
+  card: {
+    borderRadius: 22,
     padding: Spacing.four,
     gap: Spacing.three,
   },
-  headerRow: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: Spacing.two,
   },
-  title: {
+  cardTitle: {
     fontSize: 17,
   },
   filterPills: {
@@ -310,77 +357,115 @@ const styles = StyleSheet.create({
   filterBtnText: {
     fontSize: 12,
   },
-  statsGrid: {
+  metricsRow: {
     flexDirection: 'row',
     gap: Spacing.two,
   },
-  statBox: {
+  metricCard: {
     flex: 1,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     borderRadius: 14,
+    gap: 2,
+  },
+  metricValue: {
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: '800',
+  },
+  metricUnit: {
+    fontSize: 12,
+    fontWeight: 'normal',
+  },
+  chartCanvas: {
+    height: 150,
+    position: 'relative',
+    marginVertical: Spacing.one,
+  },
+  targetZone: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+    borderRadius: 8,
+    justifyContent: 'center',
+    paddingLeft: 8,
+  },
+  targetZoneText: {
+    fontSize: 10,
+    color: 'rgba(16, 185, 129, 0.7)',
+    fontWeight: '600',
+  },
+  guideLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(150, 150, 150, 0.15)',
+  },
+  connectingLine: {
+    position: 'absolute',
+    height: 2.5,
+    backgroundColor: 'rgba(59, 130, 246, 0.65)',
+    borderRadius: 1.5,
+  },
+  pointWrapper: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  pointOuterRing: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  chartWrapper: {
-    marginTop: Spacing.one,
-    gap: Spacing.two,
+  pointCore: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
   },
-  chartSubtitle: {
-    fontSize: 12,
-  },
-  barsContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 12,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.one,
-    minHeight: 160,
-  },
-  barColumn: {
+  emptyContainer: {
+    height: '100%',
+    justifyContent: 'center',
     alignItems: 'center',
-    width: 38,
-    height: 150,
-    justifyContent: 'flex-end',
-    gap: 6,
   },
-  barValueText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  barTrack: {
-    width: 22,
-    height: 105,
-    backgroundColor: 'rgba(150, 150, 150, 0.1)',
-    borderRadius: 11,
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-  },
-  barFill: {
-    width: '100%',
-    borderRadius: 11,
-  },
-  barDateText: {
-    fontSize: 11,
-  },
-  detailBox: {
-    borderRadius: 12,
+  detailBanner: {
+    borderRadius: 14,
     padding: Spacing.three,
     borderLeftWidth: 4,
+    gap: 2,
   },
-  detailRow: {
+  detailHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  emptyContainer: {
-    height: 120,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  legendRow: {
+  detailValueContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  detailValueText: {
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: '800',
+  },
+  hintText: {
+    fontSize: 12,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  legend: {
+    flexDirection: 'row',
     justifyContent: 'space-between',
     paddingTop: Spacing.two,
     borderTopWidth: 1,
@@ -396,7 +481,7 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
-  legendText: {
+  legendLabel: {
     fontSize: 11,
   },
 });
