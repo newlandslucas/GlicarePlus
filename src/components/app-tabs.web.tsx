@@ -22,6 +22,9 @@ export default function AppTabs() {
           <TabTrigger name="home" href="/" asChild>
             <TabButton>Glicemia</TabButton>
           </TabTrigger>
+          <TabTrigger name="history" href="/history" asChild>
+            <TabButton>Histórico</TabButton>
+          </TabTrigger>
           <TabTrigger name="explore" href="/explore" asChild>
             <TabButton>Carboidratos</TabButton>
           </TabTrigger>

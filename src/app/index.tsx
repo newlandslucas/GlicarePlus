@@ -1,19 +1,4 @@
-import { AddGlucoseBottomSheet } from '@/components/add-glucose-bottomsheet';
-import { GlucoseChart } from '@/components/glucose-chart';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useDiabetes } from '@/context/diabetes-context';
-import { useTheme } from '@/hooks/use-theme';
-import {
-  MeasurementContext,
-  TimeFilter,
-  getContextLabel,
-  getGlucoseStatus,
-  getGlucoseStatusColor,
-  getGlucoseStatusLabel,
-} from '@/types/diabetes';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -21,15 +6,43 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { GlucoseChart } from '@/components/glucose-chart';
+import { AddGlucoseBottomSheet } from '@/components/add-glucose-bottomsheet';
+import { useDiabetes } from '@/context/diabetes-context';
+import {
+  MeasurementContext,
+  TimeFilter,
+  getContextLabel,
+  getGlucoseStatus,
+  getGlucoseStatusColor,
+} from '@/types/diabetes';
+import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 export default function HomeScreen() {
   const theme = useTheme();
-  const { records, addRecord, deleteRecord } = useDiabetes();
+  const { records, addRecord } = useDiabetes();
 
   const [isBottomSheetVisible, setIsBottomSheetVisible] = useState(false);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('7d');
 
   const latestRecord = records[0];
+
+  // Medições de hoje
+  const todayRecords = useMemo(() => {
+    const today = new Date();
+    return records.filter((r) => {
+      const d = new Date(r.timestamp);
+      return (
+        d.getDate() === today.getDate() &&
+        d.getMonth() === today.getMonth() &&
+        d.getFullYear() === today.getFullYear()
+      );
+    });
+  }, [records]);
 
   const handleSaveGlucose = (
     value: number,
@@ -47,7 +60,7 @@ export default function HomeScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}>
           
-          {/* Header com "Bem-vindo ao Glicare+" no canto esquerdo e Ação */}
+          {/* Header com "Bem-vindo ao Glicare+" no canto esquerdo */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <ThemedText type="small" themeColor="textSecondary">
@@ -58,119 +71,129 @@ export default function HomeScreen() {
               </ThemedText>
             </View>
 
-            <View style={styles.headerBadge}>
-              <ThemedText type="smallBold" style={{ color: '#3b82f6', fontSize: 12 }}>
-                App de Controle
+            <TouchableOpacity
+              onPress={() => router.push('/history')}
+              style={styles.historyShortcutBadge}>
+              <ThemedText type="smallBold" style={{ color: '#3b82f6', fontSize: 13 }}>
+                Ver Histórico ➔
               </ThemedText>
-            </View>
+            </TouchableOpacity>
           </View>
 
-          {/* Card de Status da Última Medição + Botão de Ação para Abrir o BottomSheet */}
-          <ThemedView type="backgroundElement" style={styles.mainActionCard}>
-            <View style={styles.mainCardContent}>
-              <View style={styles.statusTextSection}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Status Atual da Glicemia
-                </ThemedText>
-                {latestRecord ? (
-                  <View style={styles.latestValueRow}>
-                    <ThemedText
-                      type="title"
-                      style={[
-                        styles.latestValueNumber,
-                        { color: getGlucoseStatusColor(getGlucoseStatus(latestRecord.value)) },
-                      ]}>
-                      {latestRecord.value}
-                    </ThemedText>
-                    <View style={styles.latestValueMeta}>
-                      <ThemedText type="smallBold" themeColor="textSecondary">
-                        mg/dL
-                      </ThemedText>
-                      <ThemedText
-                        type="smallBold"
-                        style={{
-                          color: getGlucoseStatusColor(getGlucoseStatus(latestRecord.value)),
-                        }}>
-                        {getGlucoseStatusLabel(getGlucoseStatus(latestRecord.value)).split(' ')[0]}
-                      </ThemedText>
-                    </View>
-                  </View>
-                ) : (
-                  <ThemedText type="defaultSemiBold" style={{ marginTop: 4 }}>
-                    Nenhum registro ainda
-                  </ThemedText>
-                )}
-
-                {latestRecord && (
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {getContextLabel(latestRecord.context)} • {new Date(latestRecord.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às {new Date(latestRecord.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                  </ThemedText>
-                )}
+          {/* Botão Principal de Registrar Glicemia informando o último valor registrado */}
+          <TouchableOpacity
+            style={styles.mainRegisterButton}
+            activeOpacity={0.88}
+            onPress={() => setIsBottomSheetVisible(true)}>
+            <View style={styles.registerButtonContent}>
+              <View style={styles.registerButtonIconCircle}>
+                <ThemedText style={styles.registerPlusIcon}>+</ThemedText>
               </View>
 
-              {/* Botão que aciona o BottomSheet */}
-              <TouchableOpacity
-                style={styles.openSheetButton}
-                activeOpacity={0.85}
-                onPress={() => setIsBottomSheetVisible(true)}>
-                <ThemedText style={styles.buttonPlusIcon}>+</ThemedText>
-                <ThemedText type="smallBold" style={styles.openSheetButtonText}>
-                  Registrar Glicemia
+              <View style={styles.registerTextSection}>
+                <ThemedText type="defaultSemiBold" style={styles.registerTitle}>
+                  Registrar Nova Glicemia
+                </ThemedText>
+                <ThemedText type="small" style={styles.registerSubtitle}>
+                  {latestRecord
+                    ? `Última: ${latestRecord.value} mg/dL (${getContextLabel(latestRecord.context)})`
+                    : 'Toque para cadastrar sua primeira medição'}
+                </ThemedText>
+              </View>
+
+              {latestRecord && (
+                <View
+                  style={[
+                    styles.latestBadgePill,
+                    { backgroundColor: getGlucoseStatusColor(getGlucoseStatus(latestRecord.value)) },
+                  ]}>
+                  <ThemedText type="smallBold" style={{ color: '#ffffff', fontSize: 13 }}>
+                    {latestRecord.value}
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+
+          {/* Seção: Medições do Dia de Hoje */}
+          <ThemedView type="backgroundElement" style={styles.todayCard}>
+            <View style={styles.sectionHeader}>
+              <View>
+                <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+                  Glicemias de Hoje
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {todayRecords.length} {todayRecords.length === 1 ? 'medição realizada' : 'medições realizadas'} hoje
+                </ThemedText>
+              </View>
+
+              <TouchableOpacity onPress={() => setIsBottomSheetVisible(true)}>
+                <ThemedText type="smallBold" style={{ color: '#3b82f6' }}>
+                  + Adicionar
                 </ThemedText>
               </TouchableOpacity>
             </View>
+
+            {todayRecords.length === 0 ? (
+              <View style={styles.emptyTodayBox}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Nenhuma medição registrada hoje. Toque no botão acima para registrar.
+                </ThemedText>
+              </View>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.todayScroll}>
+                {todayRecords.map((item) => {
+                  const color = getGlucoseStatusColor(getGlucoseStatus(item.value));
+                  const time = new Date(item.timestamp).toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
+
+                  return (
+                    <ThemedView
+                      key={item.id}
+                      style={[styles.todayItemCard, { backgroundColor: theme.background }]}>
+                      <View style={styles.todayItemHeader}>
+                        <ThemedText type="smallBold" style={{ color: theme.textSecondary, fontSize: 12 }}>
+                          {time}
+                        </ThemedText>
+                        <View style={[styles.todayItemDot, { backgroundColor: color }]} />
+                      </View>
+
+                      <View style={styles.todayItemValueRow}>
+                        <ThemedText
+                          type="title"
+                          style={[styles.todayItemValueNumber, { color }]}>
+                          {item.value}
+                        </ThemedText>
+                        <ThemedText type="smallBold" themeColor="textSecondary" style={{ fontSize: 11 }}>
+                          mg/dL
+                        </ThemedText>
+                      </View>
+
+                      <ThemedText type="small" style={styles.todayItemContext}>
+                        {getContextLabel(item.context)}
+                      </ThemedText>
+                    </ThemedView>
+                  );
+                })}
+              </ScrollView>
+            )}
           </ThemedView>
 
-          Gráfico Simplificado & Intuitivo
+          {/* Gráfico Moderno e Limpo com Filtros */}
           <GlucoseChart
             records={records}
             filter={timeFilter}
             onFilterChange={setTimeFilter}
           />
-
-          {/* Histórico Recente de Medições */}
-          <ThemedView type="backgroundElement" style={styles.historyCard}>
-            <View style={styles.historyHeader}>
-              <ThemedText type="defaultSemiBold" style={styles.cardSectionTitle}>
-                Histórico Recente
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                Últimos registros
-              </ThemedText>
-            </View>
-
-            {records.slice(0, 5).map((record) => {
-              const status = getGlucoseStatus(record.value);
-              const color = getGlucoseStatusColor(status);
-              const date = new Date(record.timestamp);
-
-              return (
-                <View key={record.id} style={styles.historyRow}>
-                  <View style={[styles.statusIndicator, { backgroundColor: color }]} />
-                  <View style={styles.historyInfo}>
-                    <ThemedText type="defaultSemiBold">
-                      {record.value} mg/dL
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {getContextLabel(record.context)} • {date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às {date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                      {record.notes ? ` • ${record.notes}` : ''}
-                    </ThemedText>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => deleteRecord(record.id)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                    <ThemedText type="small" style={{ color: '#ef4444' }}>
-                      Remover
-                    </ThemedText>
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
-          </ThemedView>
         </ScrollView>
       </SafeAreaView>
 
-      {/* BottomSheet Modal para Registrar Glicemia */}
+      {/* BottomSheet Modal para Registro de Glicemia */}
       <AddGlucoseBottomSheet
         visible={isBottomSheetVisible}
         onClose={() => setIsBottomSheetVisible(false)}
@@ -197,13 +220,13 @@ const styles = StyleSheet.create({
     maxWidth: MaxContentWidth,
     width: '100%',
     alignSelf: 'center',
-    gap: Spacing.four,
+    gap: Spacing.three,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: Spacing.two,
+    paddingVertical: Spacing.one,
   },
   headerLeft: {
     alignItems: 'flex-start',
@@ -218,88 +241,109 @@ const styles = StyleSheet.create({
     color: '#3b82f6',
     fontWeight: '800',
   },
-  headerBadge: {
+  historyShortcutBadge: {
     backgroundColor: 'rgba(59, 130, 246, 0.12)',
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 20,
-  },
-  mainActionCard: {
-    borderRadius: 20,
-    padding: Spacing.four,
-  },
-  mainCardContent: {
-    gap: Spacing.three,
-  },
-  statusTextSection: {
-    gap: 4,
-  },
-  latestValueRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-    marginVertical: 2,
-  },
-  latestValueNumber: {
-    fontSize: 44,
-    lineHeight: 48,
-    fontWeight: '800',
-  },
-  latestValueMeta: {
-    paddingBottom: 6,
-  },
-  openSheetButton: {
-    backgroundColor: '#3b82f6',
     borderRadius: 14,
-    height: 50,
+  },
+  mainRegisterButton: {
+    backgroundColor: '#3b82f6',
+    borderRadius: 20,
+    padding: Spacing.three,
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  registerButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: Spacing.one,
-    shadowColor: '#3b82f6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 3,
+    gap: Spacing.three,
   },
-  buttonPlusIcon: {
+  registerButtonIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  registerPlusIcon: {
     color: '#ffffff',
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 24,
+    fontWeight: '800',
     marginTop: -2,
   },
-  openSheetButtonText: {
-    color: '#ffffff',
-    fontSize: 15,
+  registerTextSection: {
+    flex: 1,
   },
-  historyCard: {
+  registerTitle: {
+    color: '#ffffff',
+    fontSize: 16,
+  },
+  registerSubtitle: {
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  latestBadgePill: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
+  },
+  todayCard: {
     borderRadius: 20,
     padding: Spacing.four,
     gap: Spacing.three,
   },
-  historyHeader: {
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  cardSectionTitle: {
+  sectionTitle: {
     fontSize: 17,
   },
-  historyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  emptyTodayBox: {
     paddingVertical: Spacing.two,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(150, 150, 150, 0.1)',
-    gap: Spacing.three,
   },
-  statusIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  todayScroll: {
+    gap: Spacing.two,
+    paddingVertical: Spacing.one,
   },
-  historyInfo: {
-    flex: 1,
+  todayItemCard: {
+    borderRadius: 16,
+    padding: Spacing.three,
+    minWidth: 125,
+    gap: 4,
+  },
+  todayItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  todayItemDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  todayItemValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+    marginTop: 2,
+  },
+  todayItemValueNumber: {
+    fontSize: 26,
+    lineHeight: 30,
+    fontWeight: '800',
+  },
+  todayItemContext: {
+    fontSize: 12,
+    opacity: 0.8,
   },
 });
